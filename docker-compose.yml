@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "56743:8000"
+    env_file:
+      - .env
+    environment:
+      - APP_ENVIRONMENT=local
+      - SANDBOX_BASE_DIR=/app/sandbox
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials.json
+    volumes:
+      # Mount sandbox directory for persistent storage
+      - ./volumes/sandbox:/app/sandbox
+      # Mount source code for development (hot reloading)
+      - ./app:/app/app
+      # Mount GCS credentials (create credentials.json in project root)
+      - ./credentials.json:/app/credentials.json
+    # Uncomment the following lines to enable hot reloading
+    command: uvicorn app.app:create_app --host 0.0.0.0 --port 8000 --reload --factory  # TODO: Recomment
+    # For production, use the default CMD from the Dockerfile
+
+volumes:
+  sandbox:
+    driver: local

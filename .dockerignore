@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+.cache/
+*.egg-info/
+.eggs/
+*.egg
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# Development/IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+.cursor/
+
+# Project specific
+volumes/
+output/
+tests/
+db_path/
+sheetrm/
+example_sheets/
+
+# Git
+.git/
+.gitignore
+
+# Credentials and environment variables
+.env
+.env.*
+!.env.example
+credentials.json
+*.json
+!example.json
+
+# Documentation
+Pflichtenheft*.pdf
+*.md
+!README.md
+
+# Build artifacts
+dist/
+build/ 

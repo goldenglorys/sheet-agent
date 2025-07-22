@@ -1,0 +1,42 @@
+[tool.poetry]
+name = "sheetagent"
+version = "0.1.0"
+description = "SheetAgent is a general-purpose agent for spreadsheet reasoning and manipulation powered by large language models"
+readme = "README.md"
+authors = ["Santa Technologies Ltd."]
+packages = [{include = "app"}]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.13"
+pandas = "^2.0.0"
+openpyxl = "^3.1.0"
+matplotlib = "^3.7.0"
+pyyaml = "^6.0"
+colorama = "^0.4.6"
+openai = "^1.0.0"
+sqlalchemy = "^2.0.0"
+recognizers-text = "^1.0.0"
+fastapi = "^0.110.0"
+uvicorn = {extras = ["standard"], version = "^0.27.1"}
+python-dotenv = "^1.0.1"
+requests = "^2.31.0"
+python-multipart = "^0.0.9"
+pydantic-settings = "^2.2.1"
+google-cloud-secret-manager = "^2.19.0"
+colorlog = "^6.9.0"
+pytest-mock = "^3.14.1"
+google-cloud-storage = "^2.16.0"
+langchain-core = "^0.3.65"
+langgraph = "^0.4.8"
+langchain-openai = "^0.3.23"
+ipython = "^9.3.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.3.1"
+black = "^23.3.0"
+isort = "^5.12.0"
+flake8 = "^6.0.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api" 

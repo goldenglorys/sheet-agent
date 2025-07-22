@@ -1,0 +1,19 @@
+/.venv
+/volumes
+/sheetrm
+/example_sheets
+/output
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+__pycache__
+
+# Google Cloud credentials
+credentials.json
+*.json
+!example.json
+
+.DS_Store
