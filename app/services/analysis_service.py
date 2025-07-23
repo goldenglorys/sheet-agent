@@ -14,6 +14,14 @@ from app.dataset.dataloader import load_problem
 from app.graph.graph import SheetAgentGraph
 from app.utils.enumeration import MODEL_TYPE
 from app.utils.gcs import upload_to_gcs
+from app.utils.exceptions import (
+    SheetAgentError,
+    SandboxError,
+    WorkbookError,
+    AIModelError,
+    FileOperationError,
+)
+from app.utils.validation import ValidationError
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -51,6 +59,9 @@ def run_analysis(
         f"Starting analysis for workbook from {source_type}: {workbook_source} with instruction: {instruction}"
     )
 
+    session_id = None
+    temp_dir = None
+
     try:
         with tempfile.TemporaryDirectory() as temp_dir_str:
             temp_dir = Path(temp_dir_str).resolve()
@@ -60,101 +71,134 @@ def run_analysis(
                 f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
             )
 
-            # Create session-specific directories
+            # Session directory setup
             session_output_dir = temp_dir / "output" / session_id
             db_path = temp_dir / "db_path"
-
             session_output_dir.mkdir(parents=True, exist_ok=True)
             db_path.mkdir(exist_ok=True)
             logger.info(f"Created session output directory: {session_output_dir}")
-
-            logger.info(f"Created session directory: {session_id}")
 
             # Generate unique workbook filename
             unique_id = uuid.uuid4()
             local_workbook_path = session_output_dir / f"{unique_id}_workbook.xlsx"
 
             # Create sandbox and load problem
-            logger.info("Creating sandbox instance")
-            sandbox = Sandbox(base_dir=temp_dir)
-            logger.info("Loading problem from workbook")
-            problem = load_problem(
-                workbook_path=local_workbook_path,
-                db_path=db_path,
-                instruction=instruction,
-                workbook_source=workbook_source,
-                is_local_file=is_local_file,
-            )
-
-            # Create agent graph with session output directory
-            logger.info("Creating SheetAgentGraph")
-            agent_graph = SheetAgentGraph(
-                problem=problem,
-                output_dir=session_output_dir,
-                sandbox=sandbox,
-            )
+            try:
+                logger.info("Creating sandbox instance")
+                sandbox = Sandbox(base_dir=temp_dir)
+            except Exception as e:
+                raise SandboxError(
+                    f"Failed to create sandbox: {str(e)}", {"session_id": session_id}
+                )
             
-            # Create metrics tracker and use context manager
-            metrics_tracker = AnalysisMetrics()
-
-            metrics_tracker.start_phase("preprocessing")
-            # Pass metrics tracker to agent graph
-            agent_graph.metrics_tracker = metrics_tracker
-            metrics_tracker.end_phase("preprocessing")
-
-            # Use context manager for automatic timing and memory tracking
-            with metrics_tracker:
-                logger.info("Running SheetAgentGraph")
-                agent_graph.run()
-                logger.info("SheetAgentGraph execution completed")
+            try:
+                logger.info("Loading problem from workbook")
+                problem = load_problem(
+                    workbook_path=local_workbook_path,
+                    db_path=db_path,
+                    instruction=instruction,
+                    workbook_source=workbook_source,
+                    is_local_file=is_local_file,
+                )
+            except ValidationError:
+                raise  # Re-raise validation errors as-is
+            except Exception as e:
+                raise WorkbookError(
+                    f"Failed to load workbook: {str(e)}",
+                    {"session_id": session_id, "source": workbook_source},
+                )
+            
+            try:
+                # Create agent graph with session output directory
+                logger.info("Creating SheetAgentGraph")
+                agent_graph = SheetAgentGraph(
+                    problem=problem,
+                    output_dir=session_output_dir,
+                    sandbox=sandbox,
+                )
                 
-                # Record output file size with file operations timing
-                metrics_tracker.start_phase("file_operations")
-                output_file_path = session_output_dir / "workbook_new.xlsx"
-                if output_file_path.exists():
-                    metrics_tracker.record_file_size(output_file_path, "output")
-                metrics_tracker.end_phase("file_operations")
+                # Create metrics tracker and use context manager
+                metrics_tracker = AnalysisMetrics()
 
-            final_metrics = metrics_tracker.get_metrics()
+                metrics_tracker.start_phase("preprocessing")
+                # Pass metrics tracker to agent graph
+                agent_graph.metrics_tracker = metrics_tracker
+                metrics_tracker.end_phase("preprocessing")
+
+                # Use context manager for automatic timing and memory tracking
+                with metrics_tracker:
+                    logger.info("Running SheetAgentGraph")
+                    # Use sandbox as context manager for automatic cleanup
+                    try:
+                        agent_graph.run()
+                        logger.info("SheetAgentGraph execution completed")
+                        
+                        # Record output file size with file operations timing
+                        metrics_tracker.start_phase("file_operations")
+                        output_file_path = session_output_dir / "workbook_new.xlsx"
+                        if output_file_path.exists():
+                            metrics_tracker.record_file_size(output_file_path, "output")
+                        metrics_tracker.end_phase("file_operations")
+
+                    finally:
+                        # Ensure sandbox cleanup even if execution fails
+                        if hasattr(agent_graph, 'sandbox'):
+                            agent_graph.sandbox.cleanup()
+
+                final_metrics = metrics_tracker.get_metrics()
+            
+            except (AIModelError, SandboxError):
+                raise  # Re-raise specific errors
+            except Exception as e:
+                raise SheetAgentError(
+                    f"Analysis execution failed: {str(e)}", {"session_id": session_id}
+                )
         
-            # Handle output based on environment
-            settings = get_settings()
-            if settings.APP_ENVIRONMENT == "local":
-                # Create persistent session-based directory structure
-                persistent_base_dir = (
-                    Path("/app/sandbox/output")
-                    if Path("/app/sandbox").exists()
-                    else Path("./output")
-                )
-                persistent_session_dir = persistent_base_dir / session_id
-                persistent_session_dir.mkdir(parents=True, exist_ok=True)
-
-                # Copy all session files to persistent storage
-                for file_path in session_output_dir.glob("*"):
-                    if file_path.is_file():
-                        shutil.copy2(file_path, persistent_session_dir / file_path.name)
-
-                logger.info(
-                    f"Analysis session {session_id} saved to: {persistent_session_dir}"
-                )
-                result_url = f"Successfully generated analysis session {session_id} to: {persistent_session_dir}"
-            else:
-                # Non-local environment: upload to GCS
-                bucket_name = settings.GCS_BUCKET_NAME
-                if not bucket_name:
-                    logger.error("GCS_BUCKET_NAME environment variable is not set")
-                    raise ValueError(
-                        "GCS_BUCKET_NAME environment variable is not set but required in non-local environment"
+            try:
+                # Handle output based on environment
+                settings = get_settings()
+                if settings.APP_ENVIRONMENT == "local":
+                    # Create persistent session-based directory structure
+                    persistent_base_dir = (
+                        Path("/app/sandbox/output")
+                        if Path("/app/sandbox").exists()
+                        else Path("./output")
                     )
+                    persistent_session_dir = persistent_base_dir / session_id
+                    persistent_session_dir.mkdir(parents=True, exist_ok=True)
 
-                # Generate a unique name for the file in GCS
-                output_file_path = session_output_dir / "workbook_new.xlsx"
-                destination_blob_name = f"analysis/{unique_id}_analysis.xlsx"
+                    # Copy all session files to persistent storage
+                    for file_path in session_output_dir.glob("*"):
+                        if file_path.is_file():
+                            shutil.copy2(file_path, persistent_session_dir / file_path.name)
 
-                # Upload the file to GCS and get the public URL
-                logger.info(f"Uploading output file to GCS bucket: {bucket_name}")
-                result_url = upload_to_gcs(output_file_path, bucket_name, destination_blob_name)
-                logger.info(f"File uploaded successfully to GCS: {result_url}")
+                    logger.info(
+                        f"Analysis session {session_id} saved to: {persistent_session_dir}"
+                    )
+                    result_url = f"Successfully generated analysis session {session_id} to: {persistent_session_dir}"
+                else:
+                    # Non-local environment: upload to GCS
+                    bucket_name = settings.GCS_BUCKET_NAME
+                    if not bucket_name:
+                        logger.error("GCS_BUCKET_NAME environment variable is not set")
+                        raise ValueError(
+                            "GCS_BUCKET_NAME environment variable is not set but required in non-local environment"
+                        )
+
+                    # Generate a unique name for the file in GCS
+                    output_file_path = session_output_dir / "workbook_new.xlsx"
+                    destination_blob_name = f"analysis/{unique_id}_analysis.xlsx"
+
+                    # Upload the file to GCS and get the public URL
+                    logger.info(f"Uploading output file to GCS bucket: {bucket_name}")
+                    result_url = upload_to_gcs(output_file_path, bucket_name, destination_blob_name)
+                    logger.info(f"File uploaded successfully to GCS: {result_url}")
+
+            except Exception as e:
+                raise FileOperationError(
+                    f"Failed to save analysis results: {str(e)}",
+                    {"session_id": session_id},
+                )
 
             # Return result with metrics
             return {
@@ -163,6 +207,15 @@ def run_analysis(
                 "performance_metrics": final_metrics,
                 "success": True
             }
+    except ValidationError as e:
+        logger.warning(f"Validation error: {str(e)}")
+        raise  # Let API endpoint handle validation errors
+    except SheetAgentError as e:
+        logger.error(f"SheetAgent error: {str(e)} | Context: {e.context}")
+        raise  # Re-raise with context preserved
     except Exception as e:
-        logger.exception(f"Error during analysis: {str(e)}")
-        raise
+        logger.exception(f"Unexpected error during analysis")
+        raise SheetAgentError(
+            f"Unexpected error: {str(e)}",
+            {"session_id": session_id, "source": workbook_source},
+        )

@@ -9,6 +9,15 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, HttpUrl, Field, field_validator
 
 from app.services.analysis_service import run_analysis
+from app.utils.validation import validate_analysis_request, ValidationError
+from app.utils.exceptions import (
+    SheetAgentError,
+    AIModelError,
+    SandboxError,
+    WorkbookError,
+)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 PROMPT = f"""
@@ -195,6 +204,14 @@ async def analyze_workbook(request: AnalysisRequest):
         HTTPException: If an error occurs during the analysis process.
     """
     try:
+        # Validate request before processing
+        validate_analysis_request(
+            workbook_source=request.workbook_source,
+            is_local_file=request.is_local_file,
+            instruction=request.instruction,
+        )
+
+        # Run analysis
         result = run_analysis(
             instruction=request.instruction,
             workbook_source=request.workbook_source,
@@ -206,8 +223,32 @@ async def analyze_workbook(request: AnalysisRequest):
             performance_metrics=result["performance_metrics"],
             success=result["success"],
         )
-    except Exception as e:
-        logging.exception("Error during analysis")
+    except ValidationError as e:
+        logger.warning(f"Validation failed: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Invalid request: {str(e)}")
+
+    except WorkbookError as e:
+        logger.error(f"Workbook error: {str(e)}")
         raise HTTPException(
-            status_code=500, detail=f"An unexpected error occurred: {e}"
+            status_code=422, detail=f"Workbook processing failed: {str(e)}"
         )
+
+    except AIModelError as e:
+        logger.error(f"AI model error: {str(e)}")
+        raise HTTPException(
+            status_code=503, detail="AI service temporarily unavailable"
+        )
+
+    except SandboxError as e:
+        logger.error(f"Sandbox error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Analysis environment error")
+
+    except SheetAgentError as e:
+        logger.error(
+            f"SheetAgent error: {str(e)} | Context: {getattr(e, 'context', {})}"
+        )
+        raise HTTPException(status_code=500, detail="Analysis failed")
+
+    except Exception as e:
+        logger.exception("Unexpected error during analysis")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred")

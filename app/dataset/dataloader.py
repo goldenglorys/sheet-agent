@@ -8,6 +8,8 @@ import openpyxl
 import pandas as pd
 import requests
 
+from app.utils.validation import WorkbookValidator
+
 
 class SheetProblem:
     def __init__(
@@ -88,6 +90,16 @@ def load_problem(
             # Download from URL
             _download_file(workbook_source, workbook_path)
 
+    # SImple validation for the workbook file after download/copy
+    try:
+        validator = WorkbookValidator()
+        validator.validate_workbook_file(workbook_path)
+    except Exception as e:
+        # Clean up downloaded file if validation fails
+        if workbook_path.exists():
+            workbook_path.unlink()
+        raise e
+    
     def create_database(wb_path: Path, db_path: Path) -> None:
         wb = pd.read_excel(wb_path, sheet_name=None)
         conn = sqlite3.connect(db_path)
@@ -102,12 +114,27 @@ def load_problem(
 
     os.makedirs(db_path, exist_ok=True)
     db_path = db_path / "database.db"
-    create_database(workbook_path, db_path)
 
-    workbook = openpyxl.load_workbook(workbook_path)
-    sheet_vars = workbook.sheetnames
-
+    # Use context manager for workbook operations
+    try:
+        create_database(workbook_path, db_path)
+        workbook = openpyxl.load_workbook(workbook_path, read_only=True)
+        sheet_vars = workbook.sheetnames
+        workbook.close()
+        
+    except Exception as e:
+        # Cleanup on error
+        if workbook_path.exists():
+            workbook_path.unlink()
+        if (db_path).exists():
+            (db_path).unlink()
+        raise e
+    
     context = "The workbook is already loaded as `workbook` using openpyxl, you only need to load the sheet(s) you want to use manually. Besides, the workbook will be automatically saved, so you don't need to save it manually."
     return SheetProblem(
-        workbook_path=workbook_path, db_path=db_path, context=context, instruction=instruction, sheet_vars=sheet_vars
+        workbook_path=workbook_path,
+        db_path=db_path,
+        context=context,
+        instruction=instruction,
+        sheet_vars=sheet_vars,
     )

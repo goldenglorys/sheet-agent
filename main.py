@@ -11,7 +11,6 @@ if __name__ == "__main__":
     settings = get_settings()
     
     logger.info(f"Starting SheetAgent API server on {settings.HOST}:{settings.PORT}")
-    print(f"Starting SheetAgent API server on {settings.HOST}:{settings.PORT}")
     # Use string reference to module:app so that uvicorn can import it in the worker process
     uvicorn.run(
         "app.app:create_app",

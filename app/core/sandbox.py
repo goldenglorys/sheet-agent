@@ -68,6 +68,14 @@ class Sandbox:
             
         self.import_lib()
 
+        def __enter__(self):
+            """Context manager entry."""
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            """Context manager exit with cleanup."""
+            self.cleanup()
+
     def import_lib(self):
         code_import = (
             "import openpyxl\nimport pandas as pd\nimport matplotlib.pyplot as plt\nimport os\nimport datetime\n"
@@ -220,7 +228,7 @@ print([str(cell.value.__class__) for cell in workbook["{sheet_name}"][2]])"""
 
     def save(self, save_dir: Path):
         """
-        Saves the workbook and session data to the specified directory within the sandbox.
+        Saves the workbook and session data to the specified directory within the sandbox with proper resource management.
         
         This method validates that the save directory is within the sandbox's base directory
         before performing any file operations, ensuring secure file handling.
@@ -230,19 +238,23 @@ print([str(cell.value.__class__) for cell in workbook["{sheet_name}"][2]])"""
             
         Raises:
             PermissionError: If the save directory is outside the sandbox's base directory.
-        """
-        output_path = self._check_path(save_dir)
-        output_path.mkdir(exist_ok=True)
-        
-        self.step(f'workbook.save(r"{output_path / "workbook_new.xlsx"}")', dummy=False)
-        with open(output_path / "code.py", "w", encoding="utf-8") as f:
-            f.write("\n\n# ============\n".join(self.code_history))
+        """        
+        try:
+            output_path = self._check_path(save_dir)
+            output_path.mkdir(exist_ok=True)
+            
+            self.step(f'workbook.save(r"{output_path / "workbook_new.xlsx"}")', dummy=False)
+            with open(output_path / "code.py", "w", encoding="utf-8") as f:
+                f.write("\n\n# ============\n".join(self.code_history))
 
-        with open(output_path / "outputs.txt", "w", encoding="utf-8") as f:
-            f.write("\n\n# ============\n".join(self.stdout))
+            with open(output_path / "outputs.txt", "w", encoding="utf-8") as f:
+                f.write("\n\n# ============\n".join(self.stdout))
 
-        with open(output_path / "errors.txt", "w", encoding="utf-8") as f:
-            f.write("\n\n# ============\n".join(self.stderr))
+            with open(output_path / "errors.txt", "w", encoding="utf-8") as f:
+                f.write("\n\n# ============\n".join(self.stderr))
+        finally:
+            # Always cleanup, even if save fails
+            self.cleanup()
 
     def save_temp_workbook(self, save_dir: Path):
         """
@@ -260,3 +272,28 @@ print([str(cell.value.__class__) for cell in workbook["{sheet_name}"][2]])"""
         output_path = self._check_path(save_dir)
         output_path.mkdir(exist_ok=True)
         self.step(f'workbook.close()\nworkbook.save(r"{output_path / "workbook_temp.xlsx"}")', dummy=True)
+
+    def cleanup(self):
+        """Ensure all resources are properly cleaned up."""
+        try:
+            # Close workbook if it exists
+            if hasattr(self, 'workbook') and self.workbook is not None:
+                self.workbook.close()
+                self.workbook = None
+                logger.info("Workbook closed successfully")
+        except Exception as e:
+            logger.warning(f"Error closing workbook: {e}")
+        
+        try:
+            # Clear interpreter state
+            if hasattr(self, 'interpreter'):
+                self.interpreter = None
+        except Exception as e:
+            logger.warning(f"Error clearing interpreter: {e}")
+        
+        try:
+            # Clear any cached references
+            if hasattr(self, '_cached_state'):
+                self._cached_state = None
+        except Exception as e:
+            logger.warning(f"Error clearing cached state: {e}")
