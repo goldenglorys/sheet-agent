@@ -20,6 +20,7 @@ if __name__ == "__main__":
         reload=True,
         factory=True,
         reload_dirs=["app"],
+        reload_excludes=["output", "*.xlsx", "*.txt"],
         log_level="info",
         log_config=None,  # Disable uvicorn's logging config to use ours
     )

@@ -43,15 +43,15 @@ if ! command -v pyenv &> /dev/null; then
     source "$SHELL_CONFIG"
 fi
 
-# Check if Python 3.11 is installed
-if ! pyenv versions | grep -q "3.11"; then
-    echo -e "${YELLOW}⚠️  Python 3.11 not found. Installing...${NC}"
-    pyenv install 3.11.0
+# Check if Python 3.13 is installed
+if ! pyenv versions | grep -q "3.13"; then
+    echo -e "${YELLOW}⚠️  Python 3.13 not found. Installing...${NC}"
+    pyenv install 3.13.0
 fi
 
 # Set local Python version
-echo -e "${GREEN}📦 Setting Python version to 3.11.0...${NC}"
-pyenv local 3.11.0
+echo -e "${GREEN}📦 Setting Python version to 3.13.0...${NC}"
+pyenv local 3.13.0
 
 # Reload pyenv shims
 pyenv rehash

@@ -8,6 +8,7 @@ from langgraph.graph import add_messages
 from app.dataset.dataloader import SheetProblem
 from app.core.sandbox import Sandbox
 from app.core.prompt_manager import PromptManager
+from app.core.metrics import AnalysisMetrics
 
 class GraphState(TypedDict):
     """
@@ -23,6 +24,7 @@ class GraphState(TypedDict):
     max_steps: int
     output_dir: Path
     prompt_manager: PromptManager
+    metrics_tracker: AnalysisMetrics
     
     # Dynamic components that are updated during execution
     # IMPORTANT: add_messages is used to automatically add the messages to the state 

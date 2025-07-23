@@ -1,4 +1,5 @@
 import logging
+from typing import Dict, Any
 from datetime import datetime
 from pathlib import Path
 from typing import Union
@@ -161,6 +162,11 @@ class AnalysisResponse(BaseModel):
     """Response model for the analysis endpoint."""
 
     analysis_file_url: str
+    session_id: str
+    success: bool = True
+    performance_metrics: Dict[str, Any] = Field(
+        default_factory=dict, description="Comprehensive analysis performance metrics"
+    )
 
 
 @router.post("/analyze", response_model=AnalysisResponse)
@@ -189,12 +195,17 @@ async def analyze_workbook(request: AnalysisRequest):
         HTTPException: If an error occurs during the analysis process.
     """
     try:
-        result_url = run_analysis(
+        result = run_analysis(
             instruction=request.instruction,
             workbook_source=request.workbook_source,
             is_local_file=request.is_local_file,
         )
-        return {"analysis_file_url": result_url}
+        return AnalysisResponse(
+            analysis_file_url=result["analysis_file_url"],
+            session_id=result["session_id"],
+            performance_metrics=result["performance_metrics"],
+            success=result["success"],
+        )
     except Exception as e:
         logging.exception("Error during analysis")
         raise HTTPException(

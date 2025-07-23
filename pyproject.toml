@@ -30,6 +30,8 @@ langchain-core = "^0.3.65"
 langgraph = "^0.4.8"
 langchain-openai = "^0.3.23"
 ipython = "^9.3.0"
+psutil = "^7.0.0"
+langchain-community = "^0.3.27"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.3.1"
