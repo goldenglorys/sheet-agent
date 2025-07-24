@@ -28,12 +28,6 @@ class AnalysisMetrics:
                 "completion_tokens": 0,
                 "estimated_cost_usd": 0.0,
             },
-            "analysis_quality": {
-                "cumulative_rows_detected": 0,
-                "data_rows_processed": 0,
-                "schema_confidence_score": 0.0,
-                "validation_errors": [],
-            },
             "system_resources": {
                 "peak_memory_mb": 0.0,
                 "workbook_size_mb": 0.0,
@@ -89,19 +83,6 @@ class AnalysisMetrics:
                 self.metrics["system_resources"]["workbook_size_mb"] = size_mb
             elif file_type == "output":
                 self.metrics["system_resources"]["output_file_size_mb"] = size_mb
-
-    def record_analysis_quality(
-        self,
-        cumulative_rows: int = 0,
-        data_rows: int = 0,
-        confidence: float = 0.0,
-        errors: list = None,
-    ):
-        """Record analysis quality metrics."""
-        self.metrics["analysis_quality"]["cumulative_rows_detected"] = cumulative_rows
-        self.metrics["analysis_quality"]["data_rows_processed"] = data_rows
-        self.metrics["analysis_quality"]["schema_confidence_score"] = confidence
-        self.metrics["analysis_quality"]["validation_errors"] = errors or []
 
     def _record_memory_usage(self):
         """Track peak memory usage."""

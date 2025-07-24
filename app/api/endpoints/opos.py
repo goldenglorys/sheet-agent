@@ -20,107 +20,83 @@ from app.utils.exceptions import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-PROMPT = f"""
-You have to analyze an open posts list from a company. It holds all unpaid invoices and credits for the company.
-            
-            # Rules
-            - Check the format of the due date in the excel file. Chances are high that the format used is german. You need to cater for this.
-            - Identify the format of "non-cumulative" rows. These are typically rows that contain an invoice number, a due date, an invoice date and an invoice amount.
-            - Identify "invoice" rows. These are rows that are "non-cumulative" AND have a positive invoice amount.
-            - Identify "credit" rows. These are rows that are "non-cumulative" AND have a negative invoice amount.
-            - All rows that are not "non-cumulative" are "cumulative" rows. 
-            - You get the maturity of an invoice by calculating the difference between today's date and the due date. 
-            - You store all your output in a new sheet named "Analysis".
-            
-            # Your Tasks
-            You provide a multi-step analysis of the entire open posts list.
-            Here is each step outlined with additional instructions:
-            1. Create a list of "cumulative" row numbers
-               - You can tell that a row is cumulative if the key identifier (mostly the invoice number) all of a sudden changes format compared to the previous rows.
-               - Sometimes, the key identifier contains the word "debitor", "debtor", "creditor". You then know that the file holds cumulative rows.
-               - Sometimes, the values such as invoice date, due date, etc are empty
-               - Other forms of cumulative rows are rows that accumulate the entire file under a given filter.
-               - Programmatically create a list of "cumulative" row numbers.
-               - Make sure to reuse the list accordingly in later steps.
-            2. Create a list of "invoice" row numbers
-               - You can tell that a row is an invoice row if it is not a "cumulative" row and has a POSITIVE invoice amount.
-               - Programmatically create a list of "cumulative" row numbers.
-               - Make sure to reuse the list accordingly in later steps.
-            3. Create a list of "credit" row numbers
-               - You can tell that a row is a credit row if it is not a "cumulative" row and has a NEGATIVE invoice amount.
-               - Programmatically create a list of "credit" row numbers.
-               - Make sure to reuse the list accordingly in later steps.
-            4. Check each "invoice" and each "credit" row for completeness. "Is all required information present?"
-               - Are invoice numbers, amounts, addresses, debtor names, creditor names, debtor numbers, etc present?
-               - Use only "invoice" rows and "credit" rows.
-            5. Calculate the sum over the invoice amounts of all "invoice" rows
-            6. Calculate the sum over the credit amounts of all "credit" rows
-            7. Create an ageing report on the "invoice" rows.
-               - Cluster "invoice" rows by maturity into clusters: 1. Not mature 2. 1-30 days maturity 3. 31-60 days maturity 4. >60 days maturity. 
-               - Calculate the maturity of a credit row by: (today's date - due date).days
-               - For each maturity cluster, accumulate the invoice amount (sum of all invoice amounts in the cluster). 
-               - For each maturity cluster, give the percentage of the total accumulated invoice amount, calculated in step 3.
-            8. Create an ageing report on the "credit" rows.
-               - Cluster "credit" rows by maturity into clusters: 1. Not mature 2. 1-30 days maturity 3. 31-60 days maturity 4. >60 days maturity. 
-               - Calculate the maturity of a credit row by: (today's date - due date).days
-               - For each maturity cluster, accumulate the credit amount (sum of all credit amounts in the cluster). 
-               - For each maturity cluster, give the percentage of the total accumulated credit amount, calculated in step 4.
-            9. Calculate the top 10 credit positions by amount (lowest to highest).
-            10. Calculate the top 10 debtor positions by amount (highest to lowest).
-            11. Duplicate analysis
-               - Check whether the "invoice" rows hold duplicate invoice numbers.
-               - If there are duplicates, provide a list of the duplicate invoice numbers.
-               - Check the "cumulative" rows for duplicate debtor numbers or names.
-               - If there are duplicates, provide a list of the duplicate debtor numbers or names.
-            
-            # Output
-            Create a new sheet named "Analysis".
-            Write the output in the "Analysis" sheet.
-            Paste the output of each step so that it is clearly visible and easy to understand.     
-            Use columns to separate the output of each step
-            
-            Today's date is the {datetime.now().strftime("%dth of %B %Y")}
-            
-            Take a deep breath and think step by step.
+PROMPT = f"""You are an expert financial analyst agent. Your goal is to analyze an open posts list from a company, which contains unpaid invoices and credits.
+
+## Overall Goal
+Complete a multi-step financial analysis of the provided spreadsheet and write the results into a new sheet named "Analysis" following the EXACT format specified below.
+
+## Analysis Plan
+
+### 1. Identify Row Types
+Start by using the `get_row_types` tool. You will need to identify the sheet name and the column letter that contains the invoice amounts to use this tool. The tool will return the row numbers for "invoices" (positive amounts), "credits" (negative amounts), and "cumulative" rows (summary/total rows).
+
+### 2. Use the Row Lists
+Once you have the lists of row numbers, use them for all subsequent calculations. Do not re-calculate these lists.
+
+### 3. Perform Calculations & Write to Analysis Sheet
+Use the `python_executor` tool to create the "Analysis" sheet with the following EXACT structure:
+
+## REQUIRED OUTPUT FORMAT IN ANALYSIS SHEET
+
+### Row 1 Headers:
+```
+A1: "Sum of Invoice Amounts"
+B1: "Sum of Credit Amounts" 
+C1: "Maturity Cluster"
+D1: "Total Amount"
+E1: "Percentage"
+F1: "Credit Maturity Cluster"
+G1: "Total Amount"
+H1: "Percentage"
+I1: "Cumulative Row Numbers"
+J1: "Invoice Row Numbers"
+K1: "Credit Row Numbers"
+L1: "Incomplete Invoice Rows"
+M1: "Incomplete Credit Rows"
+```
+
+### Data Structure:
+- **Column A**: Single value - total of all invoice amounts
+- **Column B**: Single value - total of all credit amounts  
+- **Columns C-E**: Invoice aging buckets:
+  - Row 2: "Not mature" | amount | percentage
+  - Row 3: "1-30 days" | amount | percentage  
+  - Row 4: "31-60 days" | amount | percentage
+  - Row 5: ">60 days" | amount | percentage
+- **Columns F-H**: Credit aging buckets (same structure)
+- **Columns I-K**: Row number lists (one number per row)
+- **Columns L-M**: Incomplete row numbers (missing required data)
+
+## Detailed Requirements
+
+### 4. Calculate Totals
+- Sum all invoice amounts (positive values from invoice rows)
+- Sum all credit amounts (negative values from credit rows)
+
+### 5. Create Aging Reports
+- **Invoice Aging**: Group invoice rows by maturity: Not mature, 1-30 days, 31-60 days, >60 days
+- **Credit Aging**: Same grouping for credit rows
+- **Maturity calculation**: `(today's date - due date).days`
+- **Percentages**: Each bucket's percentage of total invoices/credits
+
+### 6. Row Classification Lists
+- List all cumulative row numbers (summary/total rows)
+- List all invoice row numbers (positive amounts, non-cumulative)
+- List all credit row numbers (negative amounts, non-cumulative)
+
+### 7. Data Completeness Check
+- Identify invoice rows missing: invoice numbers, amounts, or due dates
+- Identify credit rows missing: invoice numbers, amounts, or due dates
+
+## Important Rules
+- Today's date is: **{datetime.now().strftime("%dth of %B %Y")}**
+- The `workbook` is already loaded in the sandbox
+- Use EXACT column positioning as specified above
+- Write one value per cell, lists go vertically down columns
+- Calculate percentages to 2 decimal places
+
+Take a deep breath and execute step-by-step. Start with `get_row_types`.
 """
-
-TEST_PROMPT = """
-You have to analyze an open posts list from a company. It holds all unpaid invoices and credits for the company.
-            
-            # Rules
-            - Check the format of the due date in the excel file. Chances are high that the format used is german. You need to cater for this.
-            - Identify the format of "non-cumulative" rows. These are typically rows that contain an invoice number, a due date, an invoice date and an invoice amount.
-            - Identify "invoice" rows. These are rows that are "non-cumulative" AND have a positive invoice amount.
-            - Identify "credit" rows. These are rows that are "non-cumulative" AND have a negative invoice amount.
-            - All rows that are not "non-cumulative" are "cumulative" rows. 
-            - You get the maturity of an invoice by calculating the difference between today's date and the due date. 
-            - You store all your output in a new sheet named "Analysis".
-            
-            # Your Tasks
-            You provide a multi-step analysis of the entire open posts list.
-            Here is each step outlined with additional instructions:
-            1. Create a list of "cumulative" row numbers
-               - You can tell that a row is cumulative if the key identifier (mostly the invoice number) all of a sudden changes format compared to the previous rows.
-               - Sometimes, the key identifier contains the word "debitor", "debtor", "creditor". You then know that the file holds cumulative rows.
-               - Sometimes, the values such as invoice date, due date, etc are empty
-               - Other forms of cumulative rows are rows that accumulate the entire file under a given filter.
-               - Programmatically create a list of "cumulative" row numbers.
-               - Make sure to reuse the list accordingly in later steps.
-            
-            
-            # Output
-            Write the output in the "Analysis" sheet.
-            Paste the output of each step so that it is clearly visible and easy to understand.     
-            Use columns to separate the output of each step
-            
-            Today's date is the 10th of June 2025
-            
-            Take a deep breath and think step by step.
-"""
-
-
-TEST = "Create a new sheet named 'Analysis'. Then write 'Hello World' in the sheet."
-
 
 class AnalysisRequest(BaseModel):
     """Request model for the analysis endpoint."""

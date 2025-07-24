@@ -19,7 +19,7 @@ from langchain_community.callbacks.manager import get_openai_callback
 from app.utils.enumeration import MODEL_TYPE
 from app.dataset.dataloader import SheetProblem
 from app.core.sandbox import Sandbox
-from app.graph.tools import python_executor, cell_range_reader
+from app.graph.tools import python_executor, cell_range_reader, get_row_types
 from app.core.prompt_manager import PromptManager
 from app.utils.utils import parse_think
 from app.graph.state import GraphState
@@ -210,7 +210,7 @@ class SheetAgentGraph:
         problem: SheetProblem,
         output_dir: Path,
         sandbox: Sandbox,
-        max_steps: int = 1,
+        max_steps: int = 5,
         planner_model_name: str = MODEL_TYPE.GPT_4_1106.value,
     ):
         """
@@ -245,7 +245,7 @@ class SheetAgentGraph:
         )
         
         # Create list of tools for binding
-        self.tool_list = [python_executor, cell_range_reader]
+        self.tool_list = [python_executor, cell_range_reader, get_row_types]
         
         # Bind tools to the planner model
         planner_model = planner_model.bind_tools(self.tool_list)
