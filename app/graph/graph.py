@@ -11,17 +11,19 @@ import logging
 from langchain_core.tools import BaseTool
 from langchain_core.runnables import Runnable
 from langgraph.graph import StateGraph, END
-from langgraph.prebuilt import ToolNode, tools_condition
+from langgraph.prebuilt import ToolNode
 from langchain_openai import ChatOpenAI
 from langsmith import traceable
+from langchain_community.callbacks.manager import get_openai_callback
 
 from app.utils.enumeration import MODEL_TYPE
 from app.dataset.dataloader import SheetProblem
 from app.core.sandbox import Sandbox
-from app.graph.tools import python_executor, cell_range_reader
+from app.graph.tools import python_executor, cell_range_reader, get_row_types
 from app.core.prompt_manager import PromptManager
 from app.utils.utils import parse_think
 from app.graph.state import GraphState
+from app.core.metrics import AnalysisMetrics
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -45,16 +47,34 @@ def planner_node(state: GraphState) -> GraphState:
     # Extract the necessary components from the state
     planner_chain = state["planner_chain"]
     messages = state["messages"]
+    metrics_tracker = state["metrics_tracker"]
     sheet_state_changed = state["previous_sheet_state"] != state["current_sheet_state"]
-    
+
     # Get observation only if the sheet state has changed
     if sheet_state_changed:
         observation = state["prompt_manager"].get_observation_prompt(state["current_sheet_state"])
+        input_messages = [*messages, observation]
+    else:
+        input_messages = messages
+
+    # Start AI processing timing
+    if metrics_tracker:
+        metrics_tracker.start_phase("ai_processing")
+
+    # LLM calling with automatic token tracking
+    with get_openai_callback() as cb:
+        response = planner_chain.invoke({"messages": input_messages})
         
-    # LLM CALL
-    response = planner_chain.invoke({
-        "messages": [*messages, observation] if sheet_state_changed else messages
-    })
+        # End timing and record AI usage metrics
+        if metrics_tracker:
+            metrics_tracker.end_phase("ai_processing")
+            metrics_tracker.record_ai_call(
+                tokens_used=cb.total_tokens,
+                prompt_tokens=cb.prompt_tokens,
+                completion_tokens=cb.completion_tokens,
+                cost=cb.total_cost
+            )
+
     thought = None
     if response:
         # Try to parse the thought from the planner's message if it has content
@@ -124,6 +144,7 @@ def create_initial_state(
     output_dir: Path,
     max_steps: int = 5, # ATTENTION: This determines the maximum number of steps the agent can take.
     prompt_manager: PromptManager = None,
+     metrics_tracker: AnalysisMetrics = None,
 ) -> GraphState:
     """
     Creates the initial state for the graph execution.
@@ -139,6 +160,13 @@ def create_initial_state(
     Returns:
         The initial state for the graph execution.
     """
+    # Use provided metrics tracker or create new one
+    if metrics_tracker is None:
+        metrics_tracker = AnalysisMetrics()
+    
+    # Record workbook size for metrics
+    metrics_tracker.record_file_size(problem.workbook_path, "workbook")
+
     # Get the sheet state from the sandbox
     sheet_state = sandbox.get_sheet_state()
     
@@ -148,7 +176,7 @@ def create_initial_state(
         sheet_state=sheet_state,
         instruction=problem.instruction,
     )
-    
+
     # Create the initial state
     return {
         # Static components
@@ -158,6 +186,7 @@ def create_initial_state(
         "max_steps": max_steps,
         "output_dir": output_dir,
         "prompt_manager": prompt_manager,
+        "metrics_tracker": metrics_tracker,
         
         # Dynamic components
         "messages": [initial_message],
@@ -181,7 +210,7 @@ class SheetAgentGraph:
         problem: SheetProblem,
         output_dir: Path,
         sandbox: Sandbox,
-        max_steps: int = 1,
+        max_steps: int = 5,
         planner_model_name: str = MODEL_TYPE.GPT_4_1106.value,
     ):
         """
@@ -216,7 +245,7 @@ class SheetAgentGraph:
         )
         
         # Create list of tools for binding
-        self.tool_list = [python_executor, cell_range_reader]
+        self.tool_list = [python_executor, cell_range_reader, get_row_types]
         
         # Bind tools to the planner model
         planner_model = planner_model.bind_tools(self.tool_list)
@@ -255,11 +284,18 @@ class SheetAgentGraph:
             output_dir=self.output_dir,
             max_steps=self.max_steps,
             prompt_manager=self.prompt_manager,
+            metrics_tracker=getattr(self, 'metrics_tracker', None),
         )
-        
+        # Get metrics tracker and start sandbox execution timing
+        metrics_tracker = initial_state["metrics_tracker"]
+        metrics_tracker.start_phase("sandbox_execution")
+
         # Run the graph
         logger.info("Invoking graph")
         final_state = self.graph.invoke(initial_state)
+
+        # End sandbox execution timing
+        metrics_tracker.end_phase("sandbox_execution")
         logger.info(f"Graph execution completed after {final_state['step']} steps")
         
         # Save the final state of the workbook

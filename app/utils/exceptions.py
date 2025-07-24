@@ -21,3 +21,29 @@ class CriticParseError(Exception):
 class TokenLimitError(Exception):
     def __init__(self, num_tokens:int, token_limit:int) -> None:
         super().__init__(f"Number of tokens {num_tokens} exceeds the limit {token_limit}.")
+
+class SheetAgentError(Exception):
+    """Base exception for SheetAgent with context."""
+    def __init__(self, message: str, context: dict = None):
+        super().__init__(message)
+        self.context = context or {}
+
+class ValidationError(SheetAgentError):
+    """Input validation failed."""
+    pass
+
+class SandboxError(SheetAgentError):
+    """Sandbox execution failed."""
+    pass
+
+class WorkbookError(SheetAgentError):
+    """Workbook processing failed."""
+    pass
+
+class AIModelError(SheetAgentError):
+    """AI model interaction failed."""
+    pass
+
+class FileOperationError(SheetAgentError):
+    """File operation failed."""
+    pass
